@@ -1,4 +1,5 @@
 from fastapi import FastAPI,Path,HTTPException,Query
+from fastapi.responses import JSONResponse
 from sqlalchemy import create_engine,text
 from sqlalchemy.orm import sessionmaker
 import os
@@ -6,7 +7,7 @@ from dotenv import load_dotenv
 from urllib.parse import quote_plus
 from decimal import Decimal
 from pydantic import BaseModel,Field,computed_field
-from typing import Annotated,Literal
+from typing import Annotated,Literal,Optional
 
 
 #load the env file 
@@ -26,14 +27,14 @@ engine = create_engine(f"mysql+pymysql://{user}:{password}@{host}:{port}/{databa
 SessionLocal = sessionmaker(bind=engine)
 db = SessionLocal()
 
-
+#pydantic model
 class Patient(BaseModel):
     __tablename__ = "person_info" 
     id:Annotated[str,Field(...,description="ID of the patient",examples=['P001'])]
     name:Annotated[str,Field(...,description="Name of the patient",examples=['Nithesh'])]
     city:Annotated[str,Field(...,description="City of the patient")]
     age:Annotated[int,Field(...,gt=0,lt=120,description='Age of the patient')]
-    gender:Annotated[Literal['male','female','others'],Field(...,description='Gender of the patient')]
+    gender:Annotated[Literal['Male','Female','Others'],Field(...,description='Gender of the patient')]
     height:Annotated[float,Field(...,gt=0,lt=2.50,description='height of the patient in mtr')]
     weight:Annotated[float,Field(...,gt=0,description='Weight of the patient in kgs')]
 
@@ -55,6 +56,15 @@ class Patient(BaseModel):
         else:
             return "Obese"
 
+#Mdodel for th put request
+class PatientUpdate(BaseModel):
+    name:Annotated[Optional[str],Field(default=None)]
+    city:Annotated[Optional[str],Field(default=None)]
+    age:Annotated[Optional[int],Field(default=None,gt=0)]
+    gender:Annotated[Optional[Literal['Male','Female','Others']],Field(default=None)]
+    height:Annotated[Optional[float],Field(default=None,gt=0,lt=2.50)]
+    weight:Annotated[Optional[float],Field(default=None,gt=0)]
+
 
 
 # Helper function to convert Decimal to float
@@ -71,15 +81,16 @@ def load_data():
         result=conn.execute(text("SELECT * FROM person_info;"))
     rows = [dict(row._mapping) for row in result]
     rows = convert_decimals(rows)
-
+    print(rows)
     return rows
 
 #Function to check if data already exits
-def load_data(value):
+def load_data():
     with engine.connect() as conn:
         result=conn.execute(text("SELECT * FROM person_info;"))
     rows = [dict(row._mapping) for row in result]
     rows = convert_decimals(rows)
+    return rows
 
 
 app = FastAPI()
@@ -101,6 +112,7 @@ def view():
 
 @app.get('/patient/{patient_id}')
 def view_patient(patient_id: str=Path(...,description='ID of the patient in the db', example="p001")):
+
     #load all the patients
     with engine.connect() as conn:
         result=conn.execute(text(f"SELECT name, age, city, gender,height,weight,bmi,verdict FROM person_info WHERE id = :id"),{"id":patient_id})
@@ -133,7 +145,79 @@ def sort_patients(sort_by:str = Query(...,description='Sort on the basis of heig
 @app.post('/create')
 def create_patient(patient:Patient):
     #Check if patient id is in data base
-    text =f""""""
+    query =f"""SELECT 1 FROM person_info WHERE id = '{patient.id}' """
+    with engine.connect() as conn:
+        result = conn.execute(text(query))
+        exists = result.fetchone() is not None  # True if a row is returned
+    
+    if exists:
+        raise HTTPException(status_code=400,detail='Patient already exits')
+    else:
+        patient_data=patient.model_dump(mode="json")
+        insert_query = text("""INSERT INTO person_info (id, name, city, age, gender, height, weight, bmi, verdict)
+                            VALUES (:id, :name, :city, :age, :gender, :height, :weight, :bmi, :verdict)""")
+        
+        with engine.connect() as conn:
+            conn.execute(insert_query, patient_data)
+            conn.commit()
+        
+        return JSONResponse(status_code=201,content='Patient Created successfully')
+
+@app.put("/edit/{patient_id}")
+def update_patient(patient_id:str,patient_update:PatientUpdate):
+    # Check if patient id is in data base
+    query =f"""SELECT *FROM person_info WHERE id = '{patient_id}' """
+    with engine.connect() as conn:
+        result = conn.execute(text(query))
+        exists = [dict(row._mapping) for row in result] # True if a row is returned
+    
+    if exists:
+        existing_patient=exists[0]
+        updated_patient_data=patient_update.model_dump(exclude_unset=True)
+
+        print(updated_patient_data)
+
+        #updating the existing values with new values
+        for key,value in updated_patient_data.items():
+            existing_patient[key]=value
+        
+        # existing_patient -> pydantic
+        existing_patient['id']=patient_id
+        updated_patient_obj= Patient(**existing_patient)
+
+        existing_patient_info=updated_patient_obj.model_dump()
+
+
+        insert_query = text("""UPDATE person_info SET name = :name,   city = :city,  age = :age, gender = :gender, 
+                            height = :height,weight = :weight, bmi = :bmi,verdict = :verdict WHERE id = :id""")
+        
+        with engine.connect() as conn:
+            conn.execute(insert_query, existing_patient_info)
+            conn.commit()
+        
+        return JSONResponse(status_code=200,content='Patient is successfully updated')        
+
+                
+    else:
+        raise HTTPException(status_code=404,detail='Patient does not exits')
+         
+@app.delete("/delete/{patient_id}")
+def delete_patient(patient_id:str):
+    #Check if patient id is in data base
+    query =f"""SELECT 1 FROM person_info WHERE id = '{patient_id}' """
+    with engine.connect() as conn:
+        result = conn.execute(text(query))
+        exists = result.fetchone() is not None  # True if a row is returned
+    
+    if exists:
+        delete_query = text("""DELETE FROM person_info WHERE id = :id """)
+        with engine.connect() as conn:
+            conn.execute(delete_query, {"id":patient_id})
+            conn.commit()        
+        return JSONResponse(status_code=200,content='Patient is successfully deleted')  
+    else:
+        raise HTTPException(status_code=404,detail='Patient deos not exist')
+
 
     
     
