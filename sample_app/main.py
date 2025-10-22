@@ -1,9 +1,12 @@
 from fastapi import FastAPI,Path,HTTPException,Query
 from sqlalchemy import create_engine,text
+from sqlalchemy.orm import sessionmaker
 import os
 from dotenv import load_dotenv
 from urllib.parse import quote_plus
 from decimal import Decimal
+from pydantic import BaseModel,Field,computed_field
+from typing import Annotated,Literal
 
 
 #load the env file 
@@ -19,6 +22,39 @@ password = quote_plus(password)
 
 #Create the sql engine
 engine = create_engine(f"mysql+pymysql://{user}:{password}@{host}:{port}/{database}", echo=True)
+
+SessionLocal = sessionmaker(bind=engine)
+db = SessionLocal()
+
+
+class Patient(BaseModel):
+    __tablename__ = "person_info" 
+    id:Annotated[str,Field(...,description="ID of the patient",examples=['P001'])]
+    name:Annotated[str,Field(...,description="Name of the patient",examples=['Nithesh'])]
+    city:Annotated[str,Field(...,description="City of the patient")]
+    age:Annotated[int,Field(...,gt=0,lt=120,description='Age of the patient')]
+    gender:Annotated[Literal['male','female','others'],Field(...,description='Gender of the patient')]
+    height:Annotated[float,Field(...,gt=0,lt=2.50,description='height of the patient in mtr')]
+    weight:Annotated[float,Field(...,gt=0,description='Weight of the patient in kgs')]
+
+    @computed_field
+    @property
+    def bmi(self)->float:
+        bmi =self.weight/self.height**2
+        return bmi
+    
+    @computed_field
+    @property
+    def verdict(self)->str:
+        if self.bmi<18.5:
+            return 'Underweight'
+        elif self.bmi<25:
+            return 'Normal'
+        elif self.bmi<30:
+            return 'Normal'
+        else:
+            return "Obese"
+
 
 
 # Helper function to convert Decimal to float
@@ -37,6 +73,14 @@ def load_data():
     rows = convert_decimals(rows)
 
     return rows
+
+#Function to check if data already exits
+def load_data(value):
+    with engine.connect() as conn:
+        result=conn.execute(text("SELECT * FROM person_info;"))
+    rows = [dict(row._mapping) for row in result]
+    rows = convert_decimals(rows)
+
 
 app = FastAPI()
 
@@ -85,6 +129,11 @@ def sort_patients(sort_by:str = Query(...,description='Sort on the basis of heig
     rows = convert_decimals(rows)
 
     return(rows)
+
+@app.post('/create')
+def create_patient(patient:Patient):
+    #Check if patient id is in data base
+    text =f""""""
 
     
     
