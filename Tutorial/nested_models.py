@@ -4,6 +4,7 @@ from typing import List,Dict,Optional,Annotated
 
 
 
+
 class Address(BaseModel):
     city:str
     state:str
@@ -12,7 +13,7 @@ class Address(BaseModel):
 
 
 class Patient(BaseModel):
-    #The fields are required by default'a
+    #The fields are required by1 default'a
     name:str
     gender: str
     age : int

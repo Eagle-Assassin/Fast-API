@@ -28,7 +28,7 @@ class Patient(BaseModel):
         return name.upper()
     
 
-    @field_validator('age',mode='before')
+    @field_validator('age',mode='before') #this wiill compare gefore type cohearsion  eg '30' checked before changing to 30
     @classmethod
     def validate_age(cls,value):
         if 0<value<100:
@@ -49,4 +49,4 @@ patient_info={'name':'Anoop','email':'abc@hdfc.com','linked_in_url':'http://link
 
 patient1 = Patient(**patient_info)
 
-insert_patient_data(patient1)
+insert_patient_data(patient1) 
